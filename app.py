@@ -1,8 +1,7 @@
 import streamlit as st
-import requests
+from openai import OpenAI
 
 st.set_page_config(page_title="Reasoning Agent", layout="wide")
-
 st.title("Reasoning Agent")
 st.caption("Simulation de ma façon de raisonner (Data Analyst / Data Scientist).")
 
@@ -19,71 +18,39 @@ examples = [
     "Comment traduis-tu un besoin métier flou en analyse data ?",
     "Que fais-tu quand les résultats ne confirment pas l’hypothèse métier ?"
 ]
-
 selected = st.radio("Exemples de questions :", examples)
 question = st.text_area("Ta question", value=selected, height=120)
 
-MODEL_ID = "google/flan-t5-large"
+# ✅ Hugging Face Router (OpenAI-compatible)
+client = OpenAI(
+    base_url="https://router.huggingface.co/v1",
+    api_key=st.secrets["HF_API_TOKEN"],  # on réutilise ton secret actuel
+)
 
-# ✅ Nouveau endpoint Hugging Face (router)
-HF_URL = f"https://router.huggingface.co/hf-inference/models/{MODEL_ID}"
-HF_HEADERS = {
-    "Authorization": f"Bearer {st.secrets['HF_API_TOKEN']}",
-    "Accept": "application/json",
-    "Content-Type": "application/json",
-}
+# Modèle par défaut (exemple officiel HF)
+model_id = st.text_input(
+    "Model (tu peux changer plus tard)",
+    value="moonshotai/Kimi-K2-Instruct-0905"
+)
 
-def call_llm(user_question: str) -> str:
-    prompt = f"""
-Tu es un agent qui simule ma façon de raisonner comme Data Analyst / Data Scientist.
+def call_llm(q: str) -> str:
+    system = (
+        "Tu es un agent qui simule ma façon de raisonner comme Data Analyst / Data Scientist.\n\n"
+        "Réponds en français avec EXACTEMENT cette structure :\n\n"
+        "Réponse :\n(texte court)\n\n"
+        "Raisonnement :\n- étape 1\n- étape 2\n- étape 3\n\n"
+        "Alternatives :\n- option 1 + pourquoi je ne la choisis pas\n- option 2 + pourquoi je ne la choisis pas\n"
+    )
 
-Réponds en français avec EXACTEMENT cette structure :
-
-Réponse :
-(texte court)
-
-Raisonnement :
-- étape 1
-- étape 2
-- étape 3
-
-Alternatives :
-- option 1 + pourquoi je ne la choisis pas
-- option 2 + pourquoi je ne la choisis pas
-
-Question :
-{user_question}
-""".strip()
-
-    payload = {
-        "inputs": prompt,
-        "parameters": {
-            "max_new_tokens": 300,
-            "temperature": 0.3,
-        }
-    }
-
-    r = requests.post(HF_URL, headers=HF_HEADERS, json=payload, timeout=90)
-
-    if r.status_code != 200:
-        # affiche une erreur lisible
-        raise RuntimeError(f"{r.status_code} - {r.text[:500]}")
-
-    data = r.json()
-
-    # La sortie peut être une liste de dicts selon le modèle/provider
-    if isinstance(data, list) and len(data) > 0 and "generated_text" in data[0]:
-        return data[0]["generated_text"]
-
-    # Parfois, c'est un dict avec des champs différents
-    if isinstance(data, dict):
-        if "generated_text" in data:
-            return data["generated_text"]
-        if "error" in data:
-            raise RuntimeError(data["error"])
-
-    # fallback
-    return str(data)
+    completion = client.chat.completions.create(
+        model=model_id,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": q},
+        ],
+        temperature=0.4,
+    )
+    return completion.choices[0].message.content
 
 if st.button("Générer"):
     if not question.strip():
