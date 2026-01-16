@@ -1,4 +1,5 @@
 import streamlit as st
+from huggingface_hub import InferenceClient
 
 st.set_page_config(page_title="Reasoning Agent", layout="wide")
 
@@ -7,12 +8,11 @@ st.caption("Simulation de ma façon de raisonner (Data Analyst / Data Scientist)
 
 st.markdown("""
 Pose une question (technique ou métier).  
-L’application affiche ensuite : **réponse**, **raisonnement**, **preuves**, **alternatives**.
+L’agent génère une **réponse**, un **raisonnement** et des **alternatives**.
 
-⚠️ Ceci est une **simulation de ma façon de penser**, pas une automatisation de réponses à ma place.
+⚠️ Ceci est une simulation de ma façon de penser, pas une automatisation de réponses à ma place.
 """)
 
-st.subheader("Exemples de questions")
 examples = [
     "Que fais-tu si les données sont de mauvaise qualité ?",
     "Comment choisis-tu un modèle pour un problème de churn ?",
@@ -20,28 +20,52 @@ examples = [
     "Que fais-tu quand les résultats ne confirment pas l’hypothèse métier ?"
 ]
 
-selected = st.radio("Clique sur une question ou écris la tienne :", examples)
-
+selected = st.radio("Exemples de questions :", examples)
 question = st.text_area("Ta question", value=selected, height=120)
 
+def call_llm(prompt: str) -> str:
+    client = InferenceClient(
+        model="mistralai/Mistral-7B-Instruct-v0.2",
+        token=st.secrets["HF_API_TOKEN"]
+    )
+
+    return client.text_generation(
+        prompt,
+        max_new_tokens=300,
+        temperature=0.4
+    )
+
 if st.button("Générer"):
-    st.subheader("Réponse")
-    st.write("MVP en cours — l’IA sera branchée à l’étape suivante.")
+    if not question.strip():
+        st.warning("Écris une question.")
+        st.stop()
 
-    st.subheader("Raisonnement")
-    st.markdown("""
-- Clarifier l’objectif métier  
-- Identifier les hypothèses  
-- Vérifier les données disponibles  
-- Choisir une approche simple en premier  
-- Identifier les limites et risques
-""")
+    with st.spinner("Génération en cours..."):
+        prompt = f"""
+Tu es un agent qui simule ma façon de raisonner comme Data Analyst / Data Scientist.
 
-    st.subheader("Preuves")
-    st.info("À venir : citations issues de mon CV et de mes projets.")
+Réponds en français avec EXACTEMENT cette structure :
 
-    st.subheader("Alternatives")
-    st.markdown("""
-- Approche plus complexe dès le départ → risquée sans compréhension métier  
-- Refuser la demande → possible si les données ne permettent pas une décision fiable
-""")
+Réponse :
+(texte court)
+
+Raisonnement :
+- étape 1
+- étape 2
+- étape 3
+
+Alternatives :
+- option 1 + pourquoi non
+- option 2 + pourquoi non
+
+Question :
+{question}
+""".strip()
+
+        try:
+            result = call_llm(prompt)
+        except Exception as e:
+            st.error(f"Erreur IA : {e}")
+            st.stop()
+
+    st.markdown(result)
