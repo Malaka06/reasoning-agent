@@ -1,5 +1,6 @@
 import streamlit as st
-from huggingface_hub import InferenceClient
+import requests
+import json
 
 st.set_page_config(page_title="Reasoning Agent", layout="wide")
 
@@ -27,21 +28,21 @@ selected = st.radio("Exemples de questions :", examples)
 question = st.text_area("Ta question", value=selected, height=120)
 
 # -----------------------
-# Appel Hugging Face (modèle supporté)
+# Appel Hugging Face (HTTP)
 # -----------------------
-def call_llm(user_question: str) -> str:
-    client = InferenceClient(
-        model="google/flan-t5-large",
-        token=st.secrets["HF_API_TOKEN"]
-    )
+HF_API_URL = "https://api-inference.huggingface.co/models/google/flan-t5-large"
+HF_HEADERS = {
+    "Authorization": f"Bearer {st.secrets['HF_API_TOKEN']}"
+}
 
+def call_llm(user_question: str) -> str:
     prompt = f"""
 Tu es un agent qui simule ma façon de raisonner comme Data Analyst / Data Scientist.
 
 Réponds en français avec EXACTEMENT cette structure :
 
 Réponse :
-(texte court, clair)
+(texte court)
 
 Raisonnement :
 - étape 1
@@ -56,13 +57,28 @@ Question :
 {user_question}
 """.strip()
 
-    result = client.text_generation(
-        prompt,
-        max_new_tokens=300,
-        temperature=0.3
+    payload = {
+        "inputs": prompt,
+        "parameters": {
+            "max_new_tokens": 300,
+            "temperature": 0.3
+        }
+    }
+
+    response = requests.post(
+        HF_API_URL,
+        headers=HF_HEADERS,
+        data=json.dumps(payload),
+        timeout=60
     )
 
-    return result
+    if response.status_code != 200:
+        raise RuntimeError(response.text)
+
+    result = response.json()
+
+    # flan-t5 renvoie une liste de dicts
+    return result[0]["generated_text"]
 
 # -----------------------
 # Bouton Générer
@@ -76,7 +92,7 @@ if st.button("Générer"):
         try:
             answer = call_llm(question)
         except Exception as e:
-            st.error(f"Erreur IA : {e}")
+            st.error(f"Erreur IA : {repr(e)}")
             st.stop()
 
     st.markdown(answer)
